@@ -34,6 +34,7 @@ namespace AuroraGUI.DnsSvr
                     clientAddress = MainWindow.IntIPAddr;
 
                 DnsMessage response = query.CreateResponseInstance();
+                string mappedAddress;
 
                 if (query.Questions.Count <= 0)
                     response.ReturnCode = ReturnCode.ServerFailure;
@@ -86,16 +87,16 @@ namespace AuroraGUI.DnsSvr
                             if (DnsSettings.DebugLog)
                                 BackgroundLog(@"|- BlackList");
                         }
-                        else if (DnsSettings.WhiteListEnable && DnsSettings.WhiteList.ContainsKey(dnsQuestion.Name))
+                        else if (DnsSettings.WhiteListEnable && (mappedAddress = DnsSettings.getMappedAddress(dnsQuestion.Name)) != null)
                         {
                             List<DnsRecordBase> whiteRecords = new List<DnsRecordBase>();
-                            if (!IpTools.IsIp(DnsSettings.WhiteList[dnsQuestion.Name]))
+                            if (!IpTools.IsIp(mappedAddress))
                                 whiteRecords.AddRange(
                                     (await new DnsClient(DnsSettings.SecondDnsIp, 5000, DnsSettings.SecondDnsPort)
                                         .ResolveAsync(dnsQuestion.Name, dnsQuestion.RecordType)).AnswerRecords);
                             else
                                 whiteRecords.Add(new ARecord(dnsQuestion.Name, 10,
-                                    IPAddress.Parse(DnsSettings.WhiteList[dnsQuestion.Name])));
+                                    IPAddress.Parse(mappedAddress)));
 
                             response.AnswerRecords.AddRange(whiteRecords);
                             response.AnswerRecords.Add(new TxtRecord(DomainName.Parse("whitelist.auroradns.mili.one"), 0,

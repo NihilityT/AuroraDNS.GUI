@@ -3,17 +3,87 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Text.RegularExpressions;
 using ARSoft.Tools.Net;
 using AuroraGUI.Tools;
 using MojoUnity;
 
 namespace AuroraGUI.DnsSvr
 {
+    class DomainMapper
+    {
+        public static Dictionary<DomainName, string> map = new Dictionary<DomainName, string>();
+        public static List<KeyValuePair<Regex, string>> regexList = new List<KeyValuePair<Regex, string>>();
+
+        public void Add(string from, string to)
+        {
+            from = from.Trim();
+            if (string.IsNullOrWhiteSpace(from))
+            {
+                return;
+            }
+            to = to.Trim();
+
+            if (from.StartsWith("*."))
+            {
+                from = $"/^(.+\\.)?{from.Substring(2).Replace(".", "\\.")}\\.?$";
+            }
+            if (from.StartsWith("/"))
+            {
+                var regex = new Regex(from.Substring(1),
+                    RegexOptions.Compiled | RegexOptions.IgnoreCase);
+                regexList.Add(new KeyValuePair<Regex, string>(regex, to));
+                return;
+            }
+
+            var domain = DomainName.Parse(from);
+            if (!map.ContainsKey(domain))
+            {
+                map.Add(domain, to);
+            }
+        }
+
+        public string getMappedAddress(DomainName domain)
+        {
+            string ret = null;
+            var domainName = domain.ToString();
+
+            if (map.ContainsKey(domain))
+            {
+                ret = map[domain];
+            }
+            else
+            {
+                foreach (var item in regexList)
+                {
+                    if (item.Key.IsMatch(domainName))
+                    {
+                        ret = item.Value;
+                        break;
+                    }
+                }
+            }
+
+            if (ret == "")
+            {
+                ret = domainName;
+            }
+            return ret;
+        }
+
+        public void Clear()
+        {
+            map.Clear();
+            regexList.Clear();
+        }
+    }
+
     class DnsSettings
     {
         public static List<DomainName> BlackList;
         public static List<DomainName> ChinaList;
-        public static Dictionary<DomainName, string> WhiteList = new Dictionary<DomainName, string>();
+        public static DomainMapper LocalDomainMapper = new DomainMapper();
+        public static DomainMapper WebDomainMapper = new DomainMapper();
 
         public static string HttpsDnsUrl = "https://dns.cloudflare.com/dns-query";
         public static string SecondHttpsDnsUrl = "https://1.0.0.1/dns-query";
@@ -42,6 +112,14 @@ namespace AuroraGUI.DnsSvr
         public static bool TtlRewrite = false;
         public static int TtlMinTime = 300;
         public static WebProxy WProxy = new WebProxy("127.0.0.1:1080");
+
+        public static string getMappedAddress(DomainName domain)
+        {
+            string ret;
+            if ((ret = LocalDomainMapper.getMappedAddress(domain)) != null) { }
+            else if ((ret = WebDomainMapper.getMappedAddress(domain)) != null) { }
+            return ret;
+        }
 
         public static void ReadConfig(string path)
         {
@@ -113,25 +191,39 @@ namespace AuroraGUI.DnsSvr
             ChinaList = Array.ConvertAll(chinaListStrs, DomainName.Parse).ToList();
         }
 
-        public static void ReadWhiteList(string path = "white.list")
+        static void AddList(string[] list,  DomainMapper domainMapper)
         {
-            string[] whiteListStrs = File.ReadAllLines(path);
-            foreach (var itemStr in whiteListStrs)
+            foreach (var itemStr in list)
             {
                 try
                 {
-                    if (!string.IsNullOrWhiteSpace(itemStr))
+                    var str = Regex.Replace(itemStr.Trim(), "#.*", "");
+                    if (string.IsNullOrWhiteSpace(str))
                     {
-                        var strings = itemStr.Split(' ', ',', '\t');
-                        if (!WhiteList.ContainsKey(DomainName.Parse(strings[1])))
-                            WhiteList.Add(DomainName.Parse(strings[1]), strings[0]);
+                        return;
+                    }
+                    var strings = Regex.Split(str, "\\s+|,");
+                    var added = strings.Length > 1;
+                    for (int i = 1; i < strings.Length; ++i)
+                    {
+                        domainMapper.Add(strings[i], strings[0]);
+                    }
+                    if (!added)
+                    {
+                        domainMapper.Add(strings[0], "");
                     }
                 }
                 catch (Exception e)
                 {
-                    Console.WriteLine(e);
+                    MyTools.BackgroundLog(e.ToString());
                 }
             }
+        }
+
+        public static void ReadWhiteList(string path = "white.list")
+        {
+            string[] whiteListStrs = File.ReadAllLines(path);
+            AddList(whiteListStrs, LocalDomainMapper);
         }
 
         public static void ReadWhiteListWeb(string webUrl)
@@ -139,19 +231,7 @@ namespace AuroraGUI.DnsSvr
             try
             {
                 string[] whiteListStrs = new WebClient().DownloadString(webUrl).Split('\n');
-                foreach (var itemStr in whiteListStrs)
-                {
-                    var strings = itemStr.Split(' ', ',', '\t');
-                    try
-                    {
-                        if (!WhiteList.ContainsKey(DomainName.Parse(strings[1])))
-                            WhiteList.Add(DomainName.Parse(strings[1]), strings[0]);
-                    }
-                    catch (Exception e)
-                    {
-                        MyTools.BackgroundLog(e.ToString());
-                    }
-                }
+                AddList(whiteListStrs, WebDomainMapper);
             }
             catch (Exception e)
             {
