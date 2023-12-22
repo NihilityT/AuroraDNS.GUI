@@ -107,10 +107,15 @@ namespace AuroraGUI
                     ? new WebProxy(ProxyServer.Text + ":" + ProxyServerPort.Text)
                     : new WebProxy("127.0.0.1:1080");
 
+                DnsSettings.BlackList?.Clear();
                 if (DnsSettings.BlackListEnable && File.Exists("black.list"))
                     DnsSettings.ReadBlackList(MainWindow.SetupBasePath + "black.list");
+
+                DnsSettings.ChinaList?.Clear();
                 if (DnsSettings.ChinaListEnable && File.Exists("china.list"))
                     DnsSettings.ReadChinaList(MainWindow.SetupBasePath + "china.list");
+
+                DnsSettings.LocalDomainMapper?.Clear();
                 if (DnsSettings.WhiteListEnable && File.Exists("white.list"))
                     DnsSettings.ReadWhiteList(MainWindow.SetupBasePath + "white.list");
                 if (DnsSettings.WhiteListEnable && File.Exists("rewrite.list"))
